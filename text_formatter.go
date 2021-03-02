@@ -3,6 +3,7 @@ package logrus
 import (
 	"bytes"
 	"fmt"
+	logr "github.com/sirupsen/logrus"
 	"os"
 	"runtime"
 	"sort"
@@ -11,8 +12,6 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
-	logr "github.com/sirupsen/logrus"
-
 )
 
 const (

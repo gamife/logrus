@@ -1,10 +1,9 @@
 package logrus
 
-import(
-logr "github.com/sirupsen/logrus"
+import (
+	logr "github.com/sirupsen/logrus"
 	"time"
-) 
-
+)
 
 // Default key names for the default fields
 const (
@@ -16,7 +15,6 @@ const (
 	FieldKeyFunc           = "func"
 	FieldKeyFile           = "file"
 )
-
 
 // This is to not silently overwrite `time`, `msg`, `func` and `level` fields when
 // dumping it. If this code wasn't there doing:
