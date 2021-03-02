@@ -1,6 +1,10 @@
 package logrus
 
-import "time"
+import(
+logr "github.com/sirupsen/logrus"
+	"time"
+) 
+
 
 // Default key names for the default fields
 const (
@@ -13,19 +17,6 @@ const (
 	FieldKeyFile           = "file"
 )
 
-// The Formatter interface is used to implement a custom Formatter. It takes an
-// `Entry`. It exposes all the fields, including the default ones:
-//
-// * `entry.Data["msg"]`. The message passed from Info, Warn, Error ..
-// * `entry.Data["time"]`. The timestamp.
-// * `entry.Data["level"]. The level the entry was logged at.
-//
-// Any additional fields added with `WithField` or `WithFields` are also in
-// `entry.Data`. Format is expected to return an array of bytes which are then
-// logged to `logger.Out`.
-type Formatter interface {
-	Format(*Entry) ([]byte, error)
-}
 
 // This is to not silently overwrite `time`, `msg`, `func` and `level` fields when
 // dumping it. If this code wasn't there doing:
@@ -39,7 +30,7 @@ type Formatter interface {
 //
 // It's not exported because it's still using Data in an opinionated way. It's to
 // avoid code duplication between the two default formatters.
-func prefixFieldClashes(data Fields, fieldMap FieldMap, reportCaller bool) {
+func prefixFieldClashes(data logr.Fields, fieldMap FieldMap, reportCaller bool) {
 	timeKey := fieldMap.resolve(FieldKeyTime)
 	if t, ok := data[timeKey]; ok {
 		data["fields."+timeKey] = t

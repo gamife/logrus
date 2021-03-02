@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+	logr "github.com/sirupsen/logrus"
+
 )
 
 const (
@@ -26,8 +28,33 @@ func init() {
 	baseTimestamp = time.Now()
 }
 
+type fieldKey string
+
+// FieldMap allows customization of the key names for default fields.
+type FieldMap map[fieldKey]string
+
+func (f FieldMap) resolve(key fieldKey) string {
+	if k, ok := f[key]; ok {
+		return k
+	}
+
+	return string(key)
+}
+
 // TextFormatter formats logs into text
 type TextFormatter struct {
+	// Hide key,only valid for the default method
+	HideKeys bool
+
+	// Make some keys not displayed
+	UnDisplayKeys map[string]interface{}
+
+	// Handle special key and value,write to b
+	KVWriteFunc map[string]func(b *bytes.Buffer, key string, value interface{}, f *TextFormatter)
+
+	// Handle all key and value,write to b, if nil,use default method
+	WriteFunc func(b *bytes.Buffer, key string, value interface{}, f *TextFormatter)
+
 	// Set to true to bypass checking for a TTY before outputting colors.
 	ForceColors bool
 
@@ -98,12 +125,12 @@ type TextFormatter struct {
 	levelTextMaxLength int
 }
 
-func (f *TextFormatter) init(entry *Entry) {
+func (f *TextFormatter) init(entry *logr.Entry) {
 	if entry.Logger != nil {
 		f.isTerminal = checkIfTerminal(entry.Logger.Out)
 	}
 	// Get the max length of the level text
-	for _, level := range AllLevels {
+	for _, level := range logr.AllLevels {
 		levelTextLength := utf8.RuneCount([]byte(level.String()))
 		if levelTextLength > f.levelTextMaxLength {
 			f.levelTextMaxLength = levelTextLength
@@ -127,8 +154,8 @@ func (f *TextFormatter) isColored() bool {
 }
 
 // Format renders a single log entry
-func (f *TextFormatter) Format(entry *Entry) ([]byte, error) {
-	data := make(Fields)
+func (f *TextFormatter) Format(entry *logr.Entry) ([]byte, error) {
+	data := make(logr.Fields)
 	for k, v := range entry.Data {
 		data[k] = v
 	}
@@ -148,9 +175,9 @@ func (f *TextFormatter) Format(entry *Entry) ([]byte, error) {
 	if entry.Message != "" {
 		fixedKeys = append(fixedKeys, f.FieldMap.resolve(FieldKeyMsg))
 	}
-	if entry.err != "" {
-		fixedKeys = append(fixedKeys, f.FieldMap.resolve(FieldKeyLogrusError))
-	}
+	//if entry.err != "" {
+	//	fixedKeys = append(fixedKeys, f.FieldMap.resolve(FieldKeyLogrusError))
+	//}
 	if entry.HasCaller() {
 		if f.CallerPrettyfier != nil {
 			funcVal, fileVal = f.CallerPrettyfier(entry.Caller)
@@ -196,10 +223,13 @@ func (f *TextFormatter) Format(entry *Entry) ([]byte, error) {
 	if timestampFormat == "" {
 		timestampFormat = defaultTimestampFormat
 	}
+
+	keys = SliceDelete(keys, f.UnDisplayKeys)
+	fixedKeys = SliceDelete(fixedKeys, f.UnDisplayKeys)
+
 	if f.isColored() {
 		f.printColored(b, entry, keys, data, timestampFormat)
 	} else {
-
 		for _, key := range fixedKeys {
 			var value interface{}
 			switch {
@@ -209,8 +239,8 @@ func (f *TextFormatter) Format(entry *Entry) ([]byte, error) {
 				value = entry.Level.String()
 			case key == f.FieldMap.resolve(FieldKeyMsg):
 				value = entry.Message
-			case key == f.FieldMap.resolve(FieldKeyLogrusError):
-				value = entry.err
+			//case key == f.FieldMap.resolve(FieldKeyLogrusError):
+			//	value = entry.err
 			case key == f.FieldMap.resolve(FieldKeyFunc) && entry.HasCaller():
 				value = funcVal
 			case key == f.FieldMap.resolve(FieldKeyFile) && entry.HasCaller():
@@ -218,6 +248,15 @@ func (f *TextFormatter) Format(entry *Entry) ([]byte, error) {
 			default:
 				value = data[key]
 			}
+			if wFun, ok := f.KVWriteFunc[key]; ok {
+				wFun(b, key, value, f)
+				continue
+			}
+			if f.WriteFunc != nil {
+				f.WriteFunc(b, key, value, f)
+				continue
+			}
+			// use default method
 			f.appendKeyValue(b, key, value)
 		}
 	}
@@ -226,16 +265,16 @@ func (f *TextFormatter) Format(entry *Entry) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func (f *TextFormatter) printColored(b *bytes.Buffer, entry *Entry, keys []string, data Fields, timestampFormat string) {
+func (f *TextFormatter) printColored(b *bytes.Buffer, entry *logr.Entry, keys []string, data logr.Fields, timestampFormat string) {
 	var levelColor int
 	switch entry.Level {
-	case DebugLevel, TraceLevel:
+	case logr.DebugLevel, logr.TraceLevel:
 		levelColor = gray
-	case WarnLevel:
+	case logr.WarnLevel:
 		levelColor = yellow
-	case ErrorLevel, FatalLevel, PanicLevel:
+	case logr.ErrorLevel, logr.FatalLevel, logr.PanicLevel:
 		levelColor = red
-	case InfoLevel:
+	case logr.InfoLevel:
 		levelColor = blue
 	default:
 		levelColor = blue
@@ -317,8 +356,10 @@ func (f *TextFormatter) appendKeyValue(b *bytes.Buffer, key string, value interf
 	if b.Len() > 0 {
 		b.WriteByte(' ')
 	}
-	b.WriteString(key)
-	b.WriteByte('=')
+	if !f.HideKeys {
+		b.WriteString(key)
+		b.WriteByte('=')
+	}
 	f.appendValue(b, value)
 }
 
@@ -333,4 +374,14 @@ func (f *TextFormatter) appendValue(b *bytes.Buffer, value interface{}) {
 	} else {
 		b.WriteString(fmt.Sprintf("%q", stringVal))
 	}
+}
+
+func SliceDelete(srcKey []string, m map[string]interface{}) (result []string) {
+	result = make([]string, 0, len(srcKey))
+	for _, oneKey := range srcKey {
+		if _, ok := m[oneKey]; !ok {
+			result = append(result, oneKey)
+		}
+	}
+	return
 }
