@@ -48,10 +48,10 @@ type TextFormatter struct {
 	// Make some keys not displayed
 	UnDisplayKeys map[string]interface{}
 
-	// Handle special key and value,write to b
-	KVWriteFunc map[string]func(b *bytes.Buffer, key string, value interface{}, f *TextFormatter)
+	// Handle special key and value,write to b, if skip=true,it will not execute WriteFunc or default method(f.appendKeyValue).
+	KVWriteFunc map[string]func(b *bytes.Buffer, key string, value interface{}, f *TextFormatter) (skip bool)
 
-	// Handle all key and value,write to b, if nil,use default method
+	// Handle all key and value,write to b, if nil,use default method f.appendKeyValue
 	WriteFunc func(b *bytes.Buffer, key string, value interface{}, f *TextFormatter)
 
 	// Set to true to bypass checking for a TTY before outputting colors.
@@ -248,8 +248,9 @@ func (f *TextFormatter) Format(entry *logr.Entry) ([]byte, error) {
 				value = data[key]
 			}
 			if wFun, ok := f.KVWriteFunc[key]; ok {
-				wFun(b, key, value, f)
-				continue
+				if skip := wFun(b, key, value, f); skip {
+					continue
+				}
 			}
 			if f.WriteFunc != nil {
 				f.WriteFunc(b, key, value, f)
